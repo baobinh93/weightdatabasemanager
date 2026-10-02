@@ -143,7 +143,7 @@ public class MainForm : Form
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells,
             AllowUserToAddRows = true,
             AllowUserToDeleteRows = true,
-            EditMode = DataGridViewEditMode.EditOnDoubleClick,
+            EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
             MultiSelect = false,
             RowHeadersVisible = false
