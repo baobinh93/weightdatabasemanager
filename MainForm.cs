@@ -3,6 +3,25 @@ using System.Data;
 
 namespace WeightDatabaseManager;
 
+public sealed class DataGridViewActionColumn : DataGridViewColumn
+{
+    public DataGridViewActionColumn() : base(new DataGridViewActionCell())
+    {
+    }
+
+    public override object Clone()
+    {
+        return base.Clone();
+    }
+}
+
+public sealed class DataGridViewActionCell : DataGridViewCell
+{
+    public override Type EditType => null!;
+    public override Type ValueType => typeof(string);
+    public override object DefaultNewRowValue => string.Empty;
+}
+
 public class MainForm : Form
 {
     private TextBox txtServer = null!;
@@ -31,7 +50,7 @@ public class MainForm : Form
         "truckno",
         "custname",
         "Prodname",
-        "Fistweight",
+        "Firstweight",
         "Secondweight",
         "date_in",
         "time_in"
@@ -252,34 +271,24 @@ public class MainForm : Form
         AddTextColumn(grid, "Số xe", "truckno", 125);
         AddTextColumn(grid, "Khách hàng", "custname", 220);
         AddTextColumn(grid, "Hàng hóa", "Prodname", 220);
-        AddTextColumn(grid, "TL lần 1", "Fistweight", 125);
+        AddTextColumn(grid, "TL lần 1", "Firstweight", 125);
         AddTextColumn(grid, "TL lần 2", "Secondweight", 125);
         AddTextColumn(grid, "Ngày vào", "date_in", 125);
         AddTextColumn(grid, "Giờ vào", "time_in", 110);
 
-        var editButton = new DataGridViewButtonColumn
+        // One combined action column, matching the supplied design:
+        // blue edit icon + red delete icon in the same Hành động column.
+        var actionColumn = new DataGridViewActionColumn
         {
-            Name = "EditAction",
-            HeaderText = "Sửa",
-            Text = "Sửa",
-            UseColumnTextForButtonValue = true,
-            Width = 75,
-            FlatStyle = FlatStyle.Flat
+            Name = "Action",
+            HeaderText = "Hành động",
+            Width = 130,
+            SortMode = DataGridViewColumnSortMode.NotSortable
         };
-        grid.Columns.Add(editButton);
+        grid.Columns.Add(actionColumn);
 
-        var deleteButton = new DataGridViewButtonColumn
-        {
-            Name = "DeleteAction",
-            HeaderText = "Xóa",
-            Text = "Xóa",
-            UseColumnTextForButtonValue = true,
-            Width = 75,
-            FlatStyle = FlatStyle.Flat
-        };
-        grid.Columns.Add(deleteButton);
-
-        grid.CellContentClick += Grid_CellContentClick;
+        grid.CellPainting += Grid_CellPainting;
+        grid.CellMouseClick += Grid_CellMouseClick;
         grid.CellBeginEdit += Grid_CellBeginEdit;
         grid.CellEndEdit += Grid_CellEndEdit;
         grid.SelectionChanged += Grid_SelectionChanged;
@@ -343,16 +352,69 @@ public class MainForm : Form
             UpdateSaveButtonState();
     }
 
-    private async void Grid_CellContentClick(object? sender, DataGridViewCellEventArgs e)
+    private void Grid_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
     {
         if (sender is not DataGridView grid || e.RowIndex < 0 || e.ColumnIndex < 0)
             return;
 
-        if (grid.Columns[e.ColumnIndex].Name == "EditAction")
+        if (grid.Columns[e.ColumnIndex].Name != "Action")
+            return;
+
+        e.PaintBackground(e.CellBounds, true);
+
+        // Keep the normal cell border/background but draw two clean icons
+        // side-by-side like the supplied dashboard design.
+        var editRect = new Rectangle(
+            e.CellBounds.Left + 18,
+            e.CellBounds.Top + 7,
+            42,
+            e.CellBounds.Height - 14);
+
+        var deleteRect = new Rectangle(
+            e.CellBounds.Left + 72,
+            e.CellBounds.Top + 7,
+            42,
+            e.CellBounds.Height - 14);
+
+        using var editFont = new Font("Segoe MDL2 Assets", 19F);
+        using var deleteFont = new Font("Segoe MDL2 Assets", 19F);
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            "\uE70F",
+            editFont,
+            editRect,
+            Color.FromArgb(0, 88, 190),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            "\uE74D",
+            deleteFont,
+            deleteRect,
+            Color.Red,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        e.Paint(e.ClipBounds, DataGridViewPaintParts.Border);
+        e.Handled = true;
+    }
+
+    private async void Grid_CellMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        if (sender is not DataGridView grid || e.RowIndex < 0 || e.ColumnIndex < 0)
+            return;
+
+        if (grid.Columns[e.ColumnIndex].Name != "Action")
+            return;
+
+        // The combined action cell is split into two clickable areas.
+        int relativeX = e.X;
+
+        if (relativeX >= 8 && relativeX < 65)
         {
             BeginRowEdit(grid, e.RowIndex);
         }
-        else if (grid.Columns[e.ColumnIndex].Name == "DeleteAction")
+        else if (relativeX >= 65 && relativeX < 125)
         {
             await MarkRowForDeleteAsync(grid, e.RowIndex);
         }
@@ -382,7 +444,7 @@ public class MainForm : Form
 
         row.Cells["custname"].ReadOnly = false;
         row.Cells["Prodname"].ReadOnly = false;
-        row.Cells["Fistweight"].ReadOnly = false;
+        row.Cells["Firstweight"].ReadOnly = false;
         row.Cells["Secondweight"].ReadOnly = false;
         row.Cells["time_in"].ReadOnly = false;
 
@@ -739,7 +801,7 @@ public class MainForm : Form
                 $@"UPDATE {tableName}
                    SET [custname] = @custname,
                        [Prodname] = @Prodname,
-                       [Fistweight] = @Fistweight,
+                       [Firstweight] = @Firstweight,
                        [Secondweight] = @Secondweight,
                        [time_in] = @time_in
                    WHERE [ticketnum] = @ticketnum
@@ -749,7 +811,7 @@ public class MainForm : Form
 
             AddParameter(updateCmd, "@custname", row["custname"]);
             AddParameter(updateCmd, "@Prodname", row["Prodname"]);
-            AddParameter(updateCmd, "@Fistweight", row["Fistweight"]);
+            AddParameter(updateCmd, "@Firstweight", row["Firstweight"]);
             AddParameter(updateCmd, "@Secondweight", row["Secondweight"]);
             AddParameter(updateCmd, "@time_in", row["time_in"]);
 
