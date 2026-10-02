@@ -70,7 +70,16 @@ public class MainForm : Form
             Top = 70
         };
 
-        connectionGroup.Controls.AddRange([lblServer, txtServer, lblDatabase, cboDatabase, btnConnect, btnRefresh, lblStatus]);
+        connectionGroup.Controls.AddRange(new Control[]
+{
+    lblServer,
+    txtServer,
+    lblDatabase,
+    cboDatabase,
+    btnConnect,
+    btnRefresh,
+    lblStatus
+});
 
         tabs = new TabControl { Dock = DockStyle.Fill };
         var tabWeightman = new TabPage("dbo.Weightman");
