@@ -9,7 +9,6 @@ public class MainForm : Form
     private ComboBox cboDatabase = null!;
     private Button btnConnect = null!;
     private Button btnRefresh = null!;
-    private Button btnReset = null!;
     private Button btnSaveAll = null!;
     private Label lblStatus = null!;
     private TabControl tabs = null!;
@@ -18,13 +17,14 @@ public class MainForm : Form
 
     private SqlConnection? connection;
 
-    // Original ticket numbers of rows deleted by the user.
-    // The actual DELETE is executed only when LƯU is pressed.
-    private readonly Dictionary<DataGridView, HashSet<string>> pendingDeletes = new();
+    // Original identity of rows marked for deletion.
+    // DELETE is executed only when LƯU THAY ĐỔI is pressed.
+    private readonly Dictionary<DataGridView, List<RowIdentity>> pendingDeletes = new();
 
-    // Ticket numbers of rows currently in edit mode.
-    private readonly Dictionary<DataGridView, HashSet<string>> editingRows = new();
+    // Identity of rows currently in edit mode.
+    private readonly Dictionary<DataGridView, HashSet<RowIdentity>> editingRows = new();
 
+    // These are the actual SQL column names used by the existing database.
     private static readonly string[] DisplayColumns =
     {
         "ticketnum",
@@ -36,6 +36,8 @@ public class MainForm : Form
         "date_in",
         "time_in"
     };
+
+    private sealed record RowIdentity(string Ticketnum, string Truckno, DateTime DateIn);
 
     public MainForm()
     {
@@ -54,7 +56,7 @@ public class MainForm : Form
 
         var connectionGroup = new GroupBox
         {
-            Text = "Connect to server",
+            Text = "Kết nối SQL Server",
             Dock = DockStyle.Top,
             Height = 105,
             Padding = new Padding(14),
@@ -63,7 +65,7 @@ public class MainForm : Form
 
         var lblServer = new Label
         {
-            Text = "Server name:",
+            Text = "Server:",
             AutoSize = true,
             Left = 20,
             Top = 34,
@@ -72,9 +74,9 @@ public class MainForm : Form
 
         txtServer = new TextBox
         {
-            Left = 125,
+            Left = 80,
             Top = 29,
-            Width = 220,
+            Width = 240,
             Text = @".\SQLEXPRESS",
             Font = new Font("Segoe UI", 10F)
         };
@@ -83,14 +85,14 @@ public class MainForm : Form
         {
             Text = "Database:",
             AutoSize = true,
-            Left = 380,
+            Left = 350,
             Top = 34,
             Font = new Font("Segoe UI", 10F, FontStyle.Bold)
         };
 
         cboDatabase = new ComboBox
         {
-            Left = 455,
+            Left = 435,
             Top = 29,
             Width = 220,
             DropDownStyle = ComboBoxStyle.DropDownList,
@@ -100,7 +102,7 @@ public class MainForm : Form
         btnConnect = new Button
         {
             Text = "Kết nối",
-            Left = 700,
+            Left = 680,
             Top = 26,
             Width = 115,
             Height = 34,
@@ -111,7 +113,7 @@ public class MainForm : Form
         btnRefresh = new Button
         {
             Text = "Tải lại",
-            Left = 825,
+            Left = 805,
             Top = 26,
             Width = 110,
             Height = 34,
@@ -148,10 +150,10 @@ public class MainForm : Form
         gridWeightman = CreateGrid();
         gridWeightsave = CreateGrid();
 
-        pendingDeletes[gridWeightman] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        pendingDeletes[gridWeightsave] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        editingRows[gridWeightman] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        editingRows[gridWeightsave] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        pendingDeletes[gridWeightman] = new List<RowIdentity>();
+        pendingDeletes[gridWeightsave] = new List<RowIdentity>();
+        editingRows[gridWeightman] = new HashSet<RowIdentity>();
+        editingRows[gridWeightsave] = new HashSet<RowIdentity>();
 
         tabWeightman.Controls.Add(gridWeightman);
         tabWeightsave.Controls.Add(gridWeightsave);
@@ -169,7 +171,7 @@ public class MainForm : Form
         btnSaveAll = new Button
         {
             Text = "LƯU THAY ĐỔI",
-            Width = 170,
+            Width = 180,
             Height = 42,
             Left = 12,
             Top = 12,
@@ -181,26 +183,11 @@ public class MainForm : Form
         };
         btnSaveAll.Click += async (_, _) => await SaveAllChangesAsync();
 
-        btnReset = new Button
-        {
-            Text = "RESET",
-            Width = 120,
-            Height = 42,
-            Left = 195,
-            Top = 12,
-            BackColor = Color.Firebrick,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-            Enabled = false
-        };
-        btnReset.Click += async (_, _) => await ResetTablesAsync();
-
         var warning = new Label
         {
-            Text = "Xóa/sửa chỉ thay đổi trên màn hình. Phải bấm LƯU THAY ĐỔI mới cập nhật database.",
+            Text = "Sửa/Xóa chỉ tác động database khi bạn bấm LƯU THAY ĐỔI.",
             AutoSize = true,
-            Left = 335,
+            Left = 215,
             Top = 25,
             ForeColor = Color.DimGray,
             Font = new Font("Segoe UI", 9F, FontStyle.Italic)
@@ -208,7 +195,7 @@ public class MainForm : Form
 
         bottomPanel.Controls.AddRange(new Control[]
         {
-            btnSaveAll, btnReset, warning
+            btnSaveAll, warning
         });
 
         Controls.Add(tabs);
@@ -262,7 +249,7 @@ public class MainForm : Form
         };
 
         AddTextColumn(grid, "STT", "ticketnum", 75);
-        AddTextColumn(grid, "Số xe", "truckno", 110);
+        AddTextColumn(grid, "Số xe", "truckno", 125);
         AddTextColumn(grid, "Khách hàng", "custname", 220);
         AddTextColumn(grid, "Hàng hóa", "Prodname", 220);
         AddTextColumn(grid, "TL lần 1", "Fistweight", 125);
@@ -332,9 +319,7 @@ public class MainForm : Form
             return;
 
         if (grid.CurrentRow == null || !IsRowEditing(grid.CurrentRow))
-        {
             grid.ClearSelection();
-        }
     }
 
     private void Grid_CellBeginEdit(object? sender, DataGridViewCellCancelEventArgs e)
@@ -343,7 +328,10 @@ public class MainForm : Form
             return;
 
         if (e.ColumnIndex == grid.Columns["ticketnum"]?.Index)
+        {
             e.Cancel = true;
+            return;
+        }
 
         if (!IsRowEditing(grid.Rows[e.RowIndex]))
             e.Cancel = true;
@@ -352,9 +340,7 @@ public class MainForm : Form
     private void Grid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
     {
         if (sender is DataGridView grid && e.RowIndex >= 0)
-        {
             UpdateSaveButtonState();
-        }
     }
 
     private async void Grid_CellContentClick(object? sender, DataGridViewCellEventArgs e)
@@ -375,23 +361,30 @@ public class MainForm : Form
     private void BeginRowEdit(DataGridView grid, int rowIndex)
     {
         var row = grid.Rows[rowIndex];
-        var ticket = GetTicket(row);
+        var identity = GetIdentity(row);
 
-        if (string.IsNullOrWhiteSpace(ticket))
+        if (identity == null)
         {
-            MessageBox.Show(this, "Không xác định được ticketnum của dòng này.",
-                "Không thể sửa", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(
+                this,
+                "Không xác định được Ticketnum + Số xe + Ngày vào của dòng này.",
+                "Không thể sửa",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
             return;
         }
 
-        editingRows[grid].Add(ticket);
+        editingRows[grid].Add(identity);
 
-        // Only this row becomes editable. ticketnum remains the key and is read-only.
+        // ticketnum, truckno and date_in are identity fields and remain read-only.
         foreach (DataGridViewCell cell in row.Cells)
             cell.ReadOnly = true;
 
-        for (int i = 0; i < 8; i++)
-            row.Cells[i].ReadOnly = i == 0;
+        row.Cells["custname"].ReadOnly = false;
+        row.Cells["Prodname"].ReadOnly = false;
+        row.Cells["Fistweight"].ReadOnly = false;
+        row.Cells["Secondweight"].ReadOnly = false;
+        row.Cells["time_in"].ReadOnly = false;
 
         row.DefaultCellStyle.BackColor = Color.FromArgb(242, 235, 255);
         row.DefaultCellStyle.SelectionBackColor = Color.FromArgb(225, 210, 255);
@@ -399,7 +392,7 @@ public class MainForm : Form
 
         grid.ClearSelection();
         row.Selected = true;
-        grid.CurrentCell = row.Cells[1];
+        grid.CurrentCell = row.Cells["custname"];
         grid.BeginEdit(true);
 
         UpdateSaveButtonState();
@@ -408,16 +401,19 @@ public class MainForm : Form
     private async Task MarkRowForDeleteAsync(DataGridView grid, int rowIndex)
     {
         var row = grid.Rows[rowIndex];
-        var ticket = GetTicket(row);
+        var identity = GetIdentity(row);
 
-        if (string.IsNullOrWhiteSpace(ticket))
+        if (identity == null)
             return;
 
         var result = MessageBox.Show(
             this,
-            $"Bạn có chắc muốn xóa xe có STT/ticketnum: {ticket}?\n\n" +
-            "Dòng này sẽ chỉ bị xóa trên màn hình.\n" +
-            "Bạn phải bấm LƯU THAY ĐỔI thì database mới bị xóa.",
+            $"Bạn có chắc muốn xóa dòng:\n\n" +
+            $"STT: {identity.Ticketnum}\n" +
+            $"Số xe: {identity.Truckno}\n" +
+            $"Ngày vào: {identity.DateIn:yyyy-MM-dd}\n\n" +
+            "Dòng chỉ bị đánh dấu xóa trên màn hình.\n" +
+            "Database chỉ xóa khi bạn bấm LƯU THAY ĐỔI.",
             "Xác nhận xóa",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
@@ -426,10 +422,8 @@ public class MainForm : Form
         if (result != DialogResult.Yes)
             return;
 
-        // Do not execute SQL here. Remember the original ticket number,
-        // remove the row from the in-memory table, and wait for LƯU.
-        pendingDeletes[grid].Add(ticket);
-        editingRows[grid].Remove(ticket);
+        pendingDeletes[grid].Add(identity);
+        editingRows[grid].Remove(identity);
 
         if (grid.DataSource is DataTable table)
         {
@@ -450,20 +444,38 @@ public class MainForm : Form
         await Task.CompletedTask;
     }
 
-    private static string GetTicket(DataGridViewRow row)
+    private static RowIdentity? GetIdentity(DataGridViewRow row)
     {
-        if (row.Cells["ticketnum"].Value == null ||
-            row.Cells["ticketnum"].Value == DBNull.Value)
-            return "";
+        try
+        {
+            var ticket = Convert.ToString(row.Cells["ticketnum"].Value)?.Trim() ?? "";
+            var truck = Convert.ToString(row.Cells["truckno"].Value)?.Trim() ?? "";
 
-        return Convert.ToString(row.Cells["ticketnum"].Value)?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(ticket) ||
+                string.IsNullOrWhiteSpace(truck))
+                return null;
+
+            var dateValue = row.Cells["date_in"].Value;
+            if (dateValue == null || dateValue == DBNull.Value)
+                return null;
+
+            if (!DateTime.TryParse(Convert.ToString(dateValue), out var dateIn))
+                return null;
+
+            return new RowIdentity(ticket, truck, dateIn.Date);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private bool IsRowEditing(DataGridViewRow row)
     {
-        var ticket = GetTicket(row);
-        return !string.IsNullOrWhiteSpace(ticket) &&
-               editingRows.Values.Any(set => set.Contains(ticket));
+        var identity = GetIdentity(row);
+
+        return identity != null &&
+               editingRows.Values.Any(set => set.Contains(identity));
     }
 
     private async Task ConnectAsync()
@@ -492,6 +504,7 @@ public class MainForm : Form
             await connection.OpenAsync();
 
             var dbs = new DataTable();
+
             using (var cmd = new SqlCommand(
                 "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name",
                 connection))
@@ -507,7 +520,7 @@ public class MainForm : Form
 
             var preferred = cboDatabase.Items.Cast<object>()
                 .FirstOrDefault(x =>
-                    string.Equals(x?.ToString(), "CANTHUONG", StringComparison.OrdinalIgnoreCase));
+                    string.Equals(x?.ToString(), "CANTIENPHAT", StringComparison.OrdinalIgnoreCase));
 
             if (preferred != null)
                 cboDatabase.SelectedItem = preferred;
@@ -515,7 +528,6 @@ public class MainForm : Form
                 cboDatabase.SelectedIndex = 0;
 
             btnRefresh.Enabled = true;
-            btnReset.Enabled = true;
             lblStatus.Text = $"Đã kết nối: {txtServer.Text.Trim()}";
 
             cboDatabase.SelectedIndexChanged -= DatabaseChanged;
@@ -527,6 +539,7 @@ public class MainForm : Form
         catch (Exception ex)
         {
             lblStatus.Text = "Kết nối thất bại";
+
             MessageBox.Show(
                 this,
                 "Không thể kết nối SQL Server.\n\n" + ex.Message,
@@ -621,7 +634,6 @@ public class MainForm : Form
         using var cmd = new SqlCommand(sql, connection);
         using var adapter = new SqlDataAdapter(cmd);
 
-        // Needed if this DataTable is ever used with generated commands.
         adapter.MissingSchemaAction = MissingSchemaAction.AddWithKey;
 
         await Task.Run(() => adapter.Fill(dt));
@@ -650,7 +662,6 @@ public class MainForm : Form
             }
 
             ClearPendingChanges();
-
             await LoadBothTablesAsync();
 
             MessageBox.Show(
@@ -668,6 +679,7 @@ public class MainForm : Form
                 "Save error",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
+
             UpdateSaveButtonState();
         }
     }
@@ -677,54 +689,112 @@ public class MainForm : Form
         if (connection == null)
             return;
 
-        var deletes = pendingDeletes[grid];
-
-        // DELETE rows that were marked for deletion.
-        foreach (var ticket in deletes)
+        // DELETE using the original 3-part identity.
+        foreach (var identity in pendingDeletes[grid])
         {
             using var deleteCmd = new SqlCommand(
-                $"DELETE FROM {tableName} WHERE [ticketnum] = @ticketnum",
+                $@"DELETE FROM {tableName}
+                   WHERE [ticketnum] = @ticketnum
+                     AND [truckno] = @truckno
+                     AND [date_in] = @date_in",
                 connection);
 
-            deleteCmd.Parameters.AddWithValue("@ticketnum", ticket);
-            await deleteCmd.ExecuteNonQueryAsync();
+            deleteCmd.Parameters.AddWithValue("@ticketnum", identity.Ticketnum);
+            deleteCmd.Parameters.AddWithValue("@truckno", identity.Truckno);
+            deleteCmd.Parameters.AddWithValue("@date_in", identity.DateIn);
+
+            var affected = await deleteCmd.ExecuteNonQueryAsync();
+
+            if (affected != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Không thể xác định chính xác 1 dòng để xóa.\n" +
+                    $"Ticketnum: {identity.Ticketnum}\n" +
+                    $"Truckno: {identity.Truckno}\n" +
+                    $"Date_in: {identity.DateIn:yyyy-MM-dd}\n" +
+                    $"Số dòng bị ảnh hưởng: {affected}");
+            }
         }
 
         if (grid.DataSource is not DataTable table)
             return;
 
-        // Update rows currently in the DataTable.
-        // ticketnum is treated as the stable key and is not changed.
+        // UPDATE only modified rows.
+        // Identity fields ticketnum/truckno/date_in are not editable.
         foreach (DataRow row in table.Rows)
         {
-            if (row.RowState == DataRowState.Deleted)
+            if (row.RowState == DataRowState.Deleted ||
+                row.RowState != DataRowState.Modified)
                 continue;
 
-            if (row.RowState != DataRowState.Modified)
-                continue;
+            var identity = GetIdentityFromDataRow(row);
+
+            if (identity == null)
+            {
+                throw new InvalidOperationException(
+                    "Không xác định được Ticketnum + Truckno + Date_in của một dòng đang sửa.");
+            }
 
             using var updateCmd = new SqlCommand(
                 $@"UPDATE {tableName}
-                   SET [truckno] = @truckno,
-                       [custname] = @custname,
+                   SET [custname] = @custname,
                        [Prodname] = @Prodname,
                        [Fistweight] = @Fistweight,
                        [Secondweight] = @Secondweight,
-                       [date_in] = @date_in,
                        [time_in] = @time_in
-                   WHERE [ticketnum] = @ticketnum",
+                   WHERE [ticketnum] = @ticketnum
+                     AND [truckno] = @truckno
+                     AND [date_in] = @date_in",
                 connection);
 
-            AddParameter(updateCmd, "@truckno", row["truckno"]);
             AddParameter(updateCmd, "@custname", row["custname"]);
             AddParameter(updateCmd, "@Prodname", row["Prodname"]);
             AddParameter(updateCmd, "@Fistweight", row["Fistweight"]);
             AddParameter(updateCmd, "@Secondweight", row["Secondweight"]);
-            AddParameter(updateCmd, "@date_in", row["date_in"]);
             AddParameter(updateCmd, "@time_in", row["time_in"]);
-            AddParameter(updateCmd, "@ticketnum", row["ticketnum"]);
 
-            await updateCmd.ExecuteNonQueryAsync();
+            updateCmd.Parameters.AddWithValue("@ticketnum", identity.Ticketnum);
+            updateCmd.Parameters.AddWithValue("@truckno", identity.Truckno);
+            updateCmd.Parameters.AddWithValue("@date_in", identity.DateIn);
+
+            var affected = await updateCmd.ExecuteNonQueryAsync();
+
+            if (affected != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Không thể xác định chính xác 1 dòng để cập nhật.\n" +
+                    $"Ticketnum: {identity.Ticketnum}\n" +
+                    $"Truckno: {identity.Truckno}\n" +
+                    $"Date_in: {identity.DateIn:yyyy-MM-dd}\n" +
+                    $"Số dòng bị ảnh hưởng: {affected}");
+            }
+        }
+    }
+
+    private static RowIdentity? GetIdentityFromDataRow(DataRow row)
+    {
+        try
+        {
+            var ticket = Convert.ToString(row["ticketnum"])?.Trim() ?? "";
+            var truck = Convert.ToString(row["truckno"])?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(ticket) ||
+                string.IsNullOrWhiteSpace(truck))
+                return null;
+
+            var dateValue = row["date_in"];
+
+            if (dateValue == null || dateValue == DBNull.Value)
+                return null;
+
+            if (!DateTime.TryParse(Convert.ToString(dateValue), out var dateIn))
+                return null;
+
+            return new RowIdentity(ticket, truck, dateIn.Date);
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -765,81 +835,9 @@ public class MainForm : Form
     {
         pendingDeletes[gridWeightman].Clear();
         pendingDeletes[gridWeightsave].Clear();
+
         editingRows[gridWeightman].Clear();
         editingRows[gridWeightsave].Clear();
-    }
-
-    private async Task ResetTablesAsync()
-    {
-        if (connection == null)
-            return;
-
-        var database = cboDatabase.SelectedItem?.ToString() ?? "";
-
-        var result = MessageBox.Show(
-            this,
-            $"Bạn chắc chắn muốn RESET database '{database}'?\n\n" +
-            "Toàn bộ dữ liệu trong:\n" +
-            "• dbo.Weightman\n" +
-            "• dbo.Weightsave\n\n" +
-            "sẽ bị XÓA TOÀN BỘ bằng TRUNCATE TABLE.\n\n" +
-            "Thao tác này không thể hoàn tác.",
-            "CONFIRM RESET",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning,
-            MessageBoxDefaultButton.Button2);
-
-        if (result != DialogResult.Yes)
-            return;
-
-        try
-        {
-            btnReset.Enabled = false;
-
-            using var transaction =
-                (SqlTransaction)await connection.BeginTransactionAsync();
-
-            try
-            {
-                using var cmd = new SqlCommand(
-                    "TRUNCATE TABLE dbo.Weightsave; TRUNCATE TABLE dbo.Weightman;",
-                    connection,
-                    transaction);
-
-                await cmd.ExecuteNonQueryAsync();
-                await transaction.CommitAsync();
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-
-            ClearPendingChanges();
-            await LoadBothTablesAsync();
-
-            MessageBox.Show(
-                this,
-                "Đã RESET thành công 2 bảng.",
-                "RESET complete",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                this,
-                "RESET không thực hiện được.\n\n" +
-                "SQL Server có thể đang có FOREIGN KEY hoặc ràng buộc khiến TRUNCATE không được phép.\n\n" +
-                ex.Message,
-                "RESET error",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-        }
-        finally
-        {
-            btnReset.Enabled = connection != null;
-        }
     }
 
     protected override async void OnFormClosed(FormClosedEventArgs e)
