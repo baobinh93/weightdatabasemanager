@@ -101,9 +101,9 @@ public class MainForm : Form
 
         txtServer = new TextBox
         {
-            Left = 145,
+            Left = 155,
             Top = 19,
-            Width = 215,
+            Width = 205,
             Height = 34,
             Text = @".\SQLEXPRESS",
             BorderStyle = BorderStyle.FixedSingle,
@@ -121,18 +121,18 @@ public class MainForm : Form
 
         cboDatabase = new ComboBox
         {
-            Left = 515,
+            Left = 525,
             Top = 19,
-            Width = 215,
+            Width = 205,
             Height = 34,
             DropDownStyle = ComboBoxStyle.DropDownList,
             Font = new Font("Segoe UI", 10F)
         };
 
-        btnConnect = CreateTopButton("🔗  Kết nối", 760, 16, 120);
+        btnConnect = CreateTopButton("🔗  Kết nối", 760, 16, 140);
         btnConnect.Click += async (_, _) => await ConnectAsync();
 
-        btnRefresh = CreateTopButton("⟳  Tải lại", 895, 16, 120);
+        btnRefresh = CreateTopButton("⟳  Tải lại", 920, 16, 140);
         btnRefresh.Enabled = false;
         btnRefresh.Click += async (_, _) => await LoadBothTablesAsync();
 
