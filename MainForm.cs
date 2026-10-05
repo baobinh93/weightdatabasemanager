@@ -101,9 +101,9 @@ public class MainForm : Form
 
         txtServer = new TextBox
         {
-            Left = 155,
+            Left = 165,
             Top = 19,
-            Width = 205,
+            Width = 190,
             Height = 34,
             Text = @".\SQLEXPRESS",
             BorderStyle = BorderStyle.FixedSingle,
@@ -121,9 +121,9 @@ public class MainForm : Form
 
         cboDatabase = new ComboBox
         {
-            Left = 525,
+            Left = 535,
             Top = 19,
-            Width = 205,
+            Width = 190,
             Height = 34,
             DropDownStyle = ComboBoxStyle.DropDownList,
             Font = new Font("Segoe UI", 10F)
