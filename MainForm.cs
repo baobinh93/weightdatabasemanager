@@ -112,7 +112,7 @@ public class MainForm : Form
             Width = 260,
             Height = 34,
             DropDownStyle = ComboBoxStyle.DropDown,
-            Text = @".\SQLEXPRESS",
+            Text = "CANTIENPHAT",
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 10F)
         };
