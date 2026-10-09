@@ -2,12 +2,19 @@ using Microsoft.Data.SqlClient;
 using System.Data;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Text.Json;
 
 namespace WeightDatabaseManager;
 
 public class MainForm : Form
 {
-    private TextBox txtServer = null!;
+    private ComboBox txtServer = null!;
+    private Button btnFindServers = null!;
+
+    private static readonly string ConfigDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WeightDatabaseManager");
+    private static readonly string ConfigPath = Path.Combine(ConfigDirectory, "connections.json");
     private Button btnConnect = null!;
     private Button btnRefresh = null!;
     private Button btnDeleteAll = null!;
@@ -98,22 +105,27 @@ public class MainForm : Form
             Font = new Font("Segoe UI", 10F, FontStyle.Bold)
         };
 
-        txtServer = new TextBox
+        txtServer = new ComboBox
         {
             Left = 165,
             Top = 19,
-            Width = 190,
+            Width = 260,
             Height = 34,
+            DropDownStyle = ComboBoxStyle.DropDown,
             Text = @".\SQLEXPRESS",
-            BorderStyle = BorderStyle.FixedSingle,
+            FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 10F)
         };
+        LoadSavedServers();
+
+        btnFindServers = CreateTopButton("⌕  Gợi ý server", 440, 16, 145);
+        btnFindServers.Click += (_, _) => FindCommonServers();
 
         var lblDatabase = new Label
         {
-            Text = "Database : CANTIENPHAT",
+            Text = "Database: CANTIENPHAT",
             AutoSize = true,
-            Left = 420,
+            Left = 600,
             Top = 25,
             Font = new Font("Segoe UI", 10F, FontStyle.Bold)
         };
@@ -141,6 +153,7 @@ public class MainForm : Form
         {
             lblServer,
             txtServer,
+            btnFindServers,
             lblDatabase,
             btnConnect,
             btnRefresh,
@@ -680,6 +693,89 @@ public class MainForm : Form
         }
     }
 
+    // Nạp các server đã kết nối thành công ở những lần chạy trước.
+    private void LoadSavedServers()
+    {
+        try
+        {
+            if (!File.Exists(ConfigPath))
+                return;
+
+            var saved = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(ConfigPath));
+            if (saved == null)
+                return;
+
+            foreach (var server in saved.Where(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                if (!txtServer.Items.Contains(server))
+                    txtServer.Items.Add(server);
+            }
+        }
+        catch
+        {
+            // Nếu file cấu hình lỗi, vẫn cho phép nhập server thủ công.
+        }
+    }
+
+    // Chỉ lưu tên server sau khi kết nối và xác nhận database thành công.
+    private void SaveSuccessfulServer(string server)
+    {
+        if (string.IsNullOrWhiteSpace(server))
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(ConfigDirectory);
+            var saved = new List<string>();
+
+            if (File.Exists(ConfigPath))
+            {
+                saved = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(ConfigPath))
+                    ?? new List<string>();
+            }
+
+            saved.RemoveAll(x => string.Equals(x, server, StringComparison.OrdinalIgnoreCase));
+            saved.Insert(0, server);
+            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(saved, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+
+            if (!txtServer.Items.Contains(server))
+                txtServer.Items.Insert(0, server);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                "Kết nối thành công nhưng không lưu được server vào danh sách.\n\n" + ex.Message,
+                "Lưu cấu hình", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // Gợi ý các tên server thường gặp. Đây không phải quét toàn mạng;
+    // người dùng vẫn có thể nhập tên server bất kỳ bằng tay.
+    private void FindCommonServers()
+    {
+        var candidates = new[]
+        {
+            @".\SQLEXPRESS",
+            @"localhost\SQLEXPRESS",
+            @".\MSSQLSERVER",
+            "localhost",
+            ".",
+            "CANTIENPHAT"
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (!txtServer.Items.Contains(candidate))
+                txtServer.Items.Add(candidate);
+        }
+
+        txtServer.DroppedDown = true;
+        lblStatus.Text = "Đã nạp các tên server thường gặp. Chọn một tên hoặc nhập thủ công.";
+    }
+
     private async Task ConnectAsync()
     {
         try
@@ -733,6 +829,7 @@ public class MainForm : Form
             SetConnectButtonState(true);
             SetRefreshButtonState(true);
 
+            SaveSuccessfulServer(txtServer.Text.Trim());
             lblStatus.Text =
                 $"Đã kết nối: {txtServer.Text.Trim()} - CANTIENPHAT";
 
