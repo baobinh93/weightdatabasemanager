@@ -123,7 +123,7 @@ public class MainForm : Form
         {
             Text = "Database: CANTIENPHAT",
             AutoSize = true,
-            Left = 600,
+            Left = 450,
             Top = 25,
             Font = new Font("Segoe UI", 10F, FontStyle.Bold)
         };
