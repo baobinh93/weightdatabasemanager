@@ -118,9 +118,7 @@ public class MainForm : Form
         };
         LoadSavedServers();
 
-        btnFindServers = CreateTopButton("⌕  Gợi ý server", 440, 16, 145);
-        btnFindServers.Click += (_, _) => FindCommonServers();
-
+        
         var lblDatabase = new Label
         {
             Text = "Database: CANTIENPHAT",
@@ -153,7 +151,7 @@ public class MainForm : Form
         {
             lblServer,
             txtServer,
-            btnFindServers,
+         
             lblDatabase,
             btnConnect,
             btnRefresh,
@@ -754,28 +752,7 @@ public class MainForm : Form
 
     // Gợi ý các tên server thường gặp. Đây không phải quét toàn mạng;
     // người dùng vẫn có thể nhập tên server bất kỳ bằng tay.
-    private void FindCommonServers()
-    {
-        var candidates = new[]
-        {
-            @".\SQLEXPRESS",
-            @"localhost\SQLEXPRESS",
-            @".\MSSQLSERVER",
-            "localhost",
-            ".",
-            "CANTIENPHAT"
-        };
-
-        foreach (var candidate in candidates)
-        {
-            if (!txtServer.Items.Contains(candidate))
-                txtServer.Items.Add(candidate);
-        }
-
-        txtServer.DroppedDown = true;
-        lblStatus.Text = "Đã nạp các tên server thường gặp. Chọn một tên hoặc nhập thủ công.";
-    }
-
+   
     private async Task ConnectAsync()
     {
         try
